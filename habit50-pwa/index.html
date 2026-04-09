@@ -69,7 +69,7 @@
     .task-row:last-child { border-bottom: none; }
     .check { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #ddd; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; transition: all 0.15s; background: none; }
     .check.done { background: var(--red); border-color: var(--red); }
-    .task-label { font-size: 15px; transition: all 0.2s; user-select: none; }
+    .task-label { font-size: 15px; transition: all 0.2s; user-select: none; flex: 1; }
     .task-label.done { color: #bbb; text-decoration: line-through; }
 
     /* Calendar */
@@ -112,6 +112,56 @@
     .btn-red:active { opacity: 0.8; }
     .btn-ghost { background: none; color: var(--muted); border: 2px solid var(--border); border-radius: 10px; padding: 8px 16px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; }
     .btn-ghost:active { opacity: 0.7; }
+
+    /* ── Mission editor ── */
+    .mission-section { margin-bottom: 20px; }
+    .mission-section-header {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 12px; padding-bottom: 10px;
+      border-bottom: 2px solid var(--border);
+    }
+    .mission-section-header .emoji { font-size: 22px; }
+    .mission-section-header .label { font-size: 16px; font-weight: 800; flex: 1; }
+    .mission-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 0; border-bottom: 1px solid var(--border);
+      animation: slideIn 0.15s ease;
+    }
+    .mission-item:last-of-type { border-bottom: none; }
+    @keyframes slideIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:none; } }
+    .mission-input {
+      flex: 1; border: none; outline: none; font-family: inherit;
+      font-size: 14px; font-weight: 600; color: var(--black);
+      background: transparent; padding: 4px 0;
+      border-bottom: 2px solid transparent; transition: border-color 0.15s;
+    }
+    .mission-input:focus { border-bottom-color: var(--red); }
+    .mission-input::placeholder { color: #ccc; }
+    .drag-handle {
+      color: #ccc; font-size: 16px; cursor: grab; padding: 0 2px;
+      user-select: none; touch-action: none;
+    }
+    .drag-handle:active { cursor: grabbing; }
+    .del-btn {
+      width: 26px; height: 26px; border-radius: 50%; border: none;
+      background: #f5f4f0; color: #bbb; font-size: 16px; line-height: 1;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; transition: all 0.15s; font-family: inherit;
+    }
+    .del-btn:hover { background: #ffe0e0; color: var(--red); }
+    .add-mission-btn {
+      display: flex; align-items: center; gap: 8px; width: 100%;
+      background: none; border: 2px dashed var(--border); border-radius: 12px;
+      padding: 10px 14px; font-size: 13px; font-weight: 700; color: var(--muted);
+      cursor: pointer; font-family: inherit; margin-top: 8px; transition: all 0.15s;
+    }
+    .add-mission-btn:hover { border-color: var(--red); color: var(--red); }
+    .add-mission-btn:active { opacity: 0.7; }
+    .mission-save-bar {
+      position: sticky; bottom: calc(70px + var(--safe-bottom));
+      background: rgba(245,244,240,0.95); backdrop-filter: blur(10px);
+      padding: 12px 0 4px; margin-top: 4px; z-index: 50;
+    }
 
     /* Summary */
     #summary { display: flex; gap: 10px; }
@@ -162,7 +212,8 @@
 <div id="toast"></div>
 
 <script>
-const HABITS = [
+/* ── DEFAULT HABITS ── */
+const DEFAULT_HABITS = [
   { id:"health", label:"건강", emoji:"💪", color:"#E30613",
     tasks:["물 2L 마시기","30분 이상 운동","7시간 이상 수면","야식 금지"] },
   { id:"study",  label:"공부", emoji:"📖", color:"#1a1a1a",
@@ -170,6 +221,7 @@ const HABITS = [
   { id:"system", label:"체계", emoji:"🗂", color:"#666",
     tasks:["하루 계획 세우기","할 일 목록 정리","오늘 회고 작성","내일 준비"] },
 ];
+
 const TOTAL = 50;
 const DOW = ["일","월","화","수","목","금","토"];
 const MONTHS = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
@@ -179,13 +231,34 @@ let deferredPrompt = null;
 let calViewYear, calViewMonth;
 let _currentDay = null;
 
+/* ── Habit storage: tasks are editable and saved per habit ── */
+function loadHabits() {
+  try {
+    const saved = localStorage.getItem('h50_habits');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Merge with defaults to preserve color/emoji/id if missing
+      return DEFAULT_HABITS.map(def => {
+        const s = parsed.find(h => h.id === def.id);
+        return s ? { ...def, tasks: s.tasks, label: s.label || def.label } : def;
+      });
+    }
+  } catch(e) {}
+  return DEFAULT_HABITS.map(h => ({ ...h, tasks: [...h.tasks] }));
+}
+function saveHabits(habits) {
+  localStorage.setItem('h50_habits', JSON.stringify(
+    habits.map(h => ({ id: h.id, label: h.label, tasks: h.tasks }))
+  ));
+}
+let HABITS = loadHabits();
+
 /* ── Start date ── */
 function getStartDate(){
   const s = localStorage.getItem('h50_startDate');
   return s ? new Date(s + 'T00:00:00') : null;
 }
 function setStartDate(str){ localStorage.setItem('h50_startDate', str); }
-
 function dateToDay(date){
   const start = getStartDate();
   if(!start) return null;
@@ -216,7 +289,7 @@ function fmtDate(date){
   return `${date.getFullYear()}.${String(date.getMonth()+1).padStart(2,'0')}.${String(date.getDate()).padStart(2,'0')}`;
 }
 
-/* ── Storage ── */
+/* ── Check storage ── */
 function gk(d,h,i){ return `h50_d${d}_${h}_${i}`; }
 function getCheck(d,h,i){ return localStorage.getItem(gk(d,h,i))==="1"; }
 function setCheck(d,h,i,v){ localStorage.setItem(gk(d,h,i),v?"1":"0"); }
@@ -227,7 +300,9 @@ function getDayPct(d){
 }
 function getTotalPct(hid){
   let tot=0,done=0;
-  for(let d=1;d<=TOTAL;d++) HABITS.find(h=>h.id===hid).tasks.forEach((_,i)=>{ tot++; if(getCheck(d,hid,i)) done++; });
+  const h = HABITS.find(h=>h.id===hid);
+  if(!h) return 0;
+  for(let d=1;d<=TOTAL;d++) h.tasks.forEach((_,i)=>{ tot++; if(getCheck(d,hid,i)) done++; });
   return tot?done/tot:0;
 }
 function getStreak(){
@@ -296,7 +371,7 @@ function renderToday(){
 
   HABITS.forEach(h=>{
     const done = h.tasks.filter((_,i)=>getCheck(cd,h.id,i)).length;
-    const p = done/h.tasks.length;
+    const p = h.tasks.length ? done/h.tasks.length : 0;
     html += `<div class="card">
       <div class="habit-header">
         <div style="display:flex;align-items:center;gap:9px">
@@ -306,15 +381,19 @@ function renderToday(){
         <span style="font-size:13px;font-weight:800;color:${h.color}">${done}/${h.tasks.length}</span>
       </div>
       <div class="mini-bar"><div class="mini-bar-fill" style="width:${p*100}%;background:${h.color}"></div></div>`;
-    h.tasks.forEach((t,i)=>{
-      const checked = getCheck(cd,h.id,i);
-      html += `<div class="task-row">
-        <button class="check ${checked?'done':''}" onclick="toggle('${h.id}',${i})">
-          ${checked?`<svg width="12" height="9"><polyline points="1,4.5 4.5,8 11,1" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`:''}
-        </button>
-        <span class="task-label ${checked?'done':''}">${t}</span>
-      </div>`;
-    });
+    if(h.tasks.length === 0){
+      html += `<div style="font-size:13px;color:var(--muted);text-align:center;padding:10px 0">미션이 없어요 · 설정에서 추가하세요</div>`;
+    } else {
+      h.tasks.forEach((t,i)=>{
+        const checked = getCheck(cd,h.id,i);
+        html += `<div class="task-row">
+          <button class="check ${checked?'done':''}" onclick="toggle('${h.id}',${i})">
+            ${checked?`<svg width="12" height="9"><polyline points="1,4.5 4.5,8 11,1" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`:''}
+          </button>
+          <span class="task-label ${checked?'done':''}">${t}</span>
+        </div>`;
+      });
+    }
     html += `</div>`;
   });
 
@@ -335,12 +414,10 @@ function renderToday(){
 function renderCalendar(){
   const today = new Date(); today.setHours(0,0,0,0);
   if(calViewYear===undefined){ calViewYear=today.getFullYear(); calViewMonth=today.getMonth(); }
-
   const start = getStartDate();
   const endDate = start ? new Date(start.getTime()+(TOTAL-1)*86400000) : null;
-  const firstDay = new Date(calViewYear, calViewMonth, 1);
   const daysInMonth = new Date(calViewYear, calViewMonth+1, 0).getDate();
-  const startDow = firstDay.getDay();
+  const startDow = new Date(calViewYear, calViewMonth, 1).getDay();
 
   let html = `<div class="header">
     <div class="header-tag">50일 챌린지</div>
@@ -358,14 +435,12 @@ function renderCalendar(){
   for(let i=0;i<startDow;i++) html += `<div class="cal-cell empty"></div>`;
 
   for(let day=1;day<=daysInMonth;day++){
-    const cellDate = new Date(calViewYear, calViewMonth, day);
-    cellDate.setHours(0,0,0,0);
+    const cellDate = new Date(calViewYear, calViewMonth, day); cellDate.setHours(0,0,0,0);
     const isToday = cellDate.getTime()===today.getTime();
     const cDay = start ? dateToDay(cellDate) : null;
     const inChallenge = cDay !== null;
     const isStart = start && cellDate.getTime()===new Date(start).setHours(0,0,0,0);
-    const cd = getCurrentDay();
-    const isSelected = inChallenge && cDay===cd;
+    const isSelected = inChallenge && cDay===getCurrentDay();
     const pct = inChallenge ? getDayPct(cDay) : 0;
     const isFuture = inChallenge && cDay > todayDay();
     const isFull = inChallenge && !isFuture && pct===1;
@@ -378,15 +453,10 @@ function renderCalendar(){
     if(isFull && !isSelected) cls += " full";
     if(isStart && !isSelected) cls += " is-start";
 
-    let style = "";
-    if(isPartial && !isSelected) style = `background:rgba(227,6,19,${0.1+pct*0.35});`;
-
+    let style = isPartial && !isSelected ? `background:rgba(227,6,19,${0.1+pct*0.35});` : "";
     let dotBg = "transparent";
-    if(inChallenge && !isFuture && pct>0){
-      dotBg = (pct===1 || isSelected) ? "rgba(255,255,255,0.55)" : "var(--red)";
-    }
-
-    const numStyle = (!inChallenge) ? "color:#ccc" : (isStart&&!isSelected) ? "color:white" : "";
+    if(inChallenge && !isFuture && pct>0) dotBg = (pct===1||isSelected)?"rgba(255,255,255,0.55)":"var(--red)";
+    const numStyle = !inChallenge ? "color:#ccc" : (isStart&&!isSelected) ? "color:white" : "";
     const click = inChallenge ? `onclick="goDay(${cDay})"` : "";
 
     html += `<div class="${cls}" style="${style}" ${click}>
@@ -411,15 +481,13 @@ function renderCalendar(){
   }
   html += `</div>`;
 
-  /* 50-day dot grid */
   html += `<div class="card">
     <div style="font-size:14px;font-weight:800;margin-bottom:14px">50일 한눈에 보기</div>
     <div style="display:grid;grid-template-columns:repeat(10,1fr);gap:6px">`;
   for(let d=1;d<=TOTAL;d++){
-    const p = getDayPct(d);
-    const isCur = d===getCurrentDay();
-    const bg = p===0?"#ece9e4":p===1?"#E30613":`rgba(227,6,19,${0.2+p*0.6})`;
-    html += `<button style="border:none;border-radius:50%;aspect-ratio:1;background:${bg};cursor:pointer;${isCur?'outline:2.5px solid #1a1a1a;outline-offset:1.5px':''}" onclick="goDay(${d})" title="${d}일차"></button>`;
+    const p=getDayPct(d), isCur=d===getCurrentDay();
+    const bg=p===0?"#ece9e4":p===1?"#E30613":`rgba(227,6,19,${0.2+p*0.6})`;
+    html+=`<button style="border:none;border-radius:50%;aspect-ratio:1;background:${bg};cursor:pointer;${isCur?'outline:2.5px solid #1a1a1a;outline-offset:1.5px':''}" onclick="goDay(${d})" title="${d}일차"></button>`;
   }
   html += `</div></div>`;
   document.getElementById('scroll').innerHTML = html;
@@ -434,9 +502,9 @@ function calMove(dir){
 
 /* ── STATS ── */
 function renderStats(){
-  const completedDays = Array.from({length:TOTAL},(_,i)=>i+1).filter(d=>getDayPct(d)===1).length;
-  const totalPct = Math.round(Array.from({length:TOTAL},(_,i)=>getDayPct(i+1)).reduce((a,b)=>a+b,0)/TOTAL*100);
-  let html = `<div class="header">
+  const completedDays=Array.from({length:TOTAL},(_,i)=>i+1).filter(d=>getDayPct(d)===1).length;
+  const totalPct=Math.round(Array.from({length:TOTAL},(_,i)=>getDayPct(i+1)).reduce((a,b)=>a+b,0)/TOTAL*100);
+  let html=`<div class="header">
     <div class="header-tag">50일 챌린지</div>
     <div class="header-title">나의 통계</div>
   </div>
@@ -449,8 +517,8 @@ function renderStats(){
   </div>
   <div class="card"><div style="font-size:14px;font-weight:800;margin-bottom:4px">카테고리별 달성률</div>`;
   HABITS.forEach(h=>{
-    const p = getTotalPct(h.id);
-    html += `<div class="stat-row">
+    const p=getTotalPct(h.id);
+    html+=`<div class="stat-row">
       <div style="display:flex;align-items:center;gap:8px">
         <span style="font-size:18px">${h.emoji}</span>
         <span style="font-weight:700;font-size:14px">${h.label}</span>
@@ -461,14 +529,14 @@ function renderStats(){
       </div>
     </div>`;
   });
-  html += `</div><div class="card"><div style="font-size:14px;font-weight:800;margin-bottom:10px">일별 완료 현황</div>`;
+  html+=`</div><div class="card"><div style="font-size:14px;font-weight:800;margin-bottom:10px">일별 완료 현황</div>`;
   let any=false;
   for(let d=1;d<=TOTAL;d++){
     const p=getDayPct(d);
     if(p>0){
       any=true;
-      const ds = dayToDate(d)?fmtDate(dayToDate(d)):"";
-      html += `<div class="stat-row" onclick="goDay(${d})" style="cursor:pointer">
+      const ds=dayToDate(d)?fmtDate(dayToDate(d)):"";
+      html+=`<div class="stat-row" onclick="goDay(${d})" style="cursor:pointer">
         <div>
           <div style="font-weight:700;font-size:14px">${d}일차</div>
           ${ds?`<div style="font-size:11px;color:var(--muted)">${ds}</div>`:''}
@@ -487,14 +555,55 @@ function renderStats(){
 
 /* ── SETTINGS ── */
 function renderSettings(){
-  const start = getStartDate();
-  const endDate = start ? new Date(start.getTime()+(TOTAL-1)*86400000) : null;
-  const todayStr = new Date().toISOString().slice(0,10);
+  const start=getStartDate();
+  const endDate=start?new Date(start.getTime()+(TOTAL-1)*86400000):null;
+  const todayStr=new Date().toISOString().slice(0,10);
 
-  let html = `<div class="header">
+  let html=`<div class="header">
     <div class="header-tag">50일 챌린지</div>
     <div class="header-title">설정</div>
   </div>
+
+  <!-- ① 미션 편집 -->
+  <div class="card">
+    <div style="font-size:15px;font-weight:800;margin-bottom:16px">✏️ 미션 편집</div>`;
+
+  HABITS.forEach((h, hi) => {
+    html += `<div class="mission-section">
+      <div class="mission-section-header">
+        <span class="emoji">${h.emoji}</span>
+        <span class="label">${h.label}</span>
+      </div>
+      <div id="task-list-${h.id}">`;
+    h.tasks.forEach((t, ti) => {
+      html += `<div class="mission-item" id="mi-${h.id}-${ti}" draggable="true"
+          ondragstart="dragStart(event,'${h.id}',${ti})"
+          ondragover="dragOver(event,'${h.id}',${ti})"
+          ondrop="dragDrop(event,'${h.id}',${ti})"
+          ondragend="dragEnd()">
+        <span class="drag-handle" title="드래그해서 순서 변경">⠿</span>
+        <input class="mission-input" type="text"
+          id="task-${h.id}-${ti}"
+          value="${t.replace(/"/g,'&quot;')}"
+          placeholder="미션을 입력하세요"
+          maxlength="30"/>
+        <button class="del-btn" onclick="deleteTask('${h.id}',${ti})" title="삭제">×</button>
+      </div>`;
+    });
+    html += `</div>
+      <button class="add-mission-btn" onclick="addTask('${h.id}')">
+        <span style="font-size:18px">+</span> 미션 추가
+      </button>
+    </div>`;
+    if(hi < HABITS.length - 1) html += `<div style="height:1px;background:var(--border);margin:16px 0"></div>`;
+  });
+
+  html += `<div class="mission-save-bar">
+    <button class="btn-red" onclick="saveMissions()">💾 미션 저장하기</button>
+  </div>
+  </div>
+
+  <!-- ② 챌린지 기간 -->
   <div class="card">
     <div style="font-size:14px;font-weight:800;margin-bottom:2px">📅 챌린지 기간</div>
     <div class="setting-row">
@@ -515,17 +624,103 @@ function renderSettings(){
       <button class="btn-red" onclick="saveStartDateFromSettings()">저장하기</button>
     </div>
   </div>
+
+  <!-- ③ 데이터 관리 -->
   <div class="card">
     <div style="font-size:14px;font-weight:800;margin-bottom:2px">🗑 데이터 관리</div>
     <div class="setting-row">
       <div><div class="setting-label">기록 초기화</div><div class="setting-sub">모든 체크 기록이 삭제됩니다</div></div>
       <button class="btn-ghost" onclick="resetData()">초기화</button>
     </div>
+    <div class="setting-row">
+      <div><div class="setting-label">미션 기본값으로</div><div class="setting-sub">미션을 처음 상태로 되돌립니다</div></div>
+      <button class="btn-ghost" onclick="resetMissions()">되돌리기</button>
+    </div>
   </div>`;
-  document.getElementById('scroll').innerHTML=html;
+
+  document.getElementById('scroll').innerHTML = html;
 }
 
-/* ── Actions ── */
+/* ── Mission editing functions ── */
+function addTask(hid){
+  const h = HABITS.find(x=>x.id===hid);
+  if(!h) return;
+  if(h.tasks.length >= 8){ showToast("미션은 최대 8개까지 가능해요"); return; }
+  h.tasks.push("");
+  renderSettings();
+  // focus new input
+  setTimeout(()=>{
+    const inputs = document.querySelectorAll(`#task-list-${hid} .mission-input`);
+    if(inputs.length) inputs[inputs.length-1].focus();
+  }, 50);
+}
+
+function deleteTask(hid, idx){
+  const h = HABITS.find(x=>x.id===hid);
+  if(!h) return;
+  if(h.tasks.length <= 1){ showToast("미션은 최소 1개 필요해요"); return; }
+  // read current values from DOM before modifying
+  syncInputsToHabit(hid);
+  h.tasks.splice(idx, 1);
+  renderSettings();
+}
+
+function syncInputsToHabit(hid){
+  const h = HABITS.find(x=>x.id===hid);
+  if(!h) return;
+  h.tasks.forEach((_, i) => {
+    const input = document.getElementById(`task-${hid}-${i}`);
+    if(input) h.tasks[i] = input.value.trim();
+  });
+}
+
+function saveMissions(){
+  // Read all current input values
+  HABITS.forEach(h => {
+    h.tasks.forEach((_, i) => {
+      const input = document.getElementById(`task-${h.id}-${i}`);
+      if(input) h.tasks[i] = input.value.trim();
+    });
+    // Remove empty tasks
+    h.tasks = h.tasks.filter(t => t.length > 0);
+    if(h.tasks.length === 0) h.tasks = ["미션을 입력해주세요"];
+  });
+  saveHabits(HABITS);
+  showToast("✅ 미션이 저장되었습니다!");
+  renderSettings();
+}
+
+function resetMissions(){
+  if(!confirm("미션을 기본값으로 되돌릴까요?")) return;
+  HABITS = DEFAULT_HABITS.map(h => ({ ...h, tasks: [...h.tasks] }));
+  saveHabits(HABITS);
+  showToast("미션이 기본값으로 변경되었습니다");
+  renderSettings();
+}
+
+/* ── Drag to reorder ── */
+let dragHid=null, dragFrom=null;
+function dragStart(e, hid, idx){
+  dragHid=hid; dragFrom=idx;
+  syncInputsToHabit(hid);
+  e.dataTransfer.effectAllowed='move';
+  e.currentTarget.style.opacity='0.4';
+}
+function dragOver(e, hid, idx){
+  if(dragHid===hid){ e.preventDefault(); e.dataTransfer.dropEffect='move'; }
+}
+function dragDrop(e, hid, idx){
+  e.preventDefault();
+  if(dragHid!==hid || dragFrom===idx) return;
+  const h = HABITS.find(x=>x.id===hid);
+  if(!h) return;
+  const [item] = h.tasks.splice(dragFrom, 1);
+  h.tasks.splice(idx, 0, item);
+  renderSettings();
+}
+function dragEnd(){ document.querySelectorAll('.mission-item').forEach(el=>el.style.opacity=''); }
+
+/* ── Other actions ── */
 function render(){
   if(currentView==="today") renderToday();
   else if(currentView==="calendar") renderCalendar();
